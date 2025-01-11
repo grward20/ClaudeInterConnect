@@ -79,6 +79,27 @@ void ClaudeInterConnectAudioProcessor::prepareToPlay(double sampleRate, int samp
     sharedAudioBuffer.clear();
 }
 
+// Implementation of the attemptConnectionRetry method
+void ClaudeInterConnectAudioProcessor::attemptConnectionRetry()
+{
+    if (!isServer)
+    {
+        DBG("Attempting to reconnect to server on port " + juce::String(PORT_NUMBER));
+        if (!connectToSocket("localhost", PORT_NUMBER, 2000))
+        {
+            DBG("Failed to connect to server. Retrying...");
+            // Retry after a delay
+            juce::Timer::callAfterDelay(2000, [this]() { attemptConnectionRetry(); });
+        }
+        else
+        {
+            DBG("Successfully connected to server as client");
+        }
+    }
+}
+
+
+
 void ClaudeInterConnectAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                                                   juce::MidiBuffer& midiMessages)
 {
@@ -90,7 +111,7 @@ void ClaudeInterConnectAudioProcessor::processBlock(juce::AudioBuffer<float>& bu
     if (isSender && isConnected)
     {
         // Add debug for audio sending
-        DBG("Sending audio block: " + juce::String(buffer.getNumSamples()) + " samples");
+//        DBG("Sending audio block: " + juce::String(buffer.getNumSamples()) + " samples");
         // Server/Sender: send audio data
         juce::MemoryBlock dataToSend;
         const size_t bufferSize = sizeof(float) * buffer.getNumSamples() * buffer.getNumChannels();
@@ -111,7 +132,7 @@ void ClaudeInterConnectAudioProcessor::processBlock(juce::AudioBuffer<float>& bu
     else if (!isSender && isConnected)
     {
         // Add debug for audio receiving
-        DBG("Receiving audio block");
+//        DBG("Receiving audio block");
         // Client/Receiver: process received audio data
         buffer.clear();
         for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
@@ -120,11 +141,11 @@ void ClaudeInterConnectAudioProcessor::processBlock(juce::AudioBuffer<float>& bu
                          buffer.getNumSamples());
         }
     }
-    else
-    {
-        DBG("Not processing audio - isSender: " + (isSender ? String("true") : String("false")) +
-            ", isConnected: " + (isConnected.load() ? String("true") : String("false")));
-    }
+//    else
+//    {
+//        DBG("Not processing audio - isSender: " + (isSender ? String("true") : String("false")) +
+//            ", isConnected: " + (isConnected.load() ? String("true") : String("false")));
+//    }
 }
 
 void ClaudeInterConnectAudioProcessor::connectionMade()
@@ -144,7 +165,7 @@ void ClaudeInterConnectAudioProcessor::messageReceived(const juce::MemoryBlock& 
     if (!isServer)
     {
         
-        DBG("Received message of size: " + juce::String(message.getSize()));
+//        DBG("Received message of size: " + juce::String(message.getSize()));
         const float* rawData = static_cast<const float*>(message.getData());
         const size_t numSamples = message.getSize() / (sizeof(float) * 2); // Changed to size_t
 
@@ -191,7 +212,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout
     
     layout.add(std::make_unique<juce::AudioParameterBool>(ParameterID {"InOut", 1}, // parameterID
                                                           "Send/Receive",  // parameter name
-                                                          false           // default value
+                                                          false          // default value
                                                           ));
     
     return layout;
@@ -202,6 +223,40 @@ void ClaudeInterConnectAudioProcessor::parameterChanged(const juce::String& para
     if (parameterID == "InOut")
     {
         DBG("InOut parameter changed to: " + String(newValue > 0.5f ? "Sender" : "Receiver"));
+
+        // Clean up existing state
+        if (isServer)
+        {
+            connectionServer->stop();
+            connectionServer.reset();
+        }
+        disconnect();
+        isConnected = false;
+
+        // Reinitialize based on new value
+        if (newValue > 0.5f) // Sender mode
+        {
+            DBG("=== REINITIALIZING AS SENDER ===");
+            isServer = true;
+            connectionServer.reset(new ConnectionServer(*this));
+
+            if (!connectionServer->beginWaitingForSocket(PORT_NUMBER))
+            {
+                DBG("Failed to start server on port " + juce::String(PORT_NUMBER));
+            }
+            else
+            {
+                DBG("Server successfully started and waiting on port " + juce::String(PORT_NUMBER));
+            }
+        }
+        else // Receiver mode
+        {
+            DBG("=== REINITIALIZING AS RECEIVER ===");
+            isServer = false;
+
+            // Attempt initial connection
+            attemptConnectionRetry();
+        }
     }
 }
 

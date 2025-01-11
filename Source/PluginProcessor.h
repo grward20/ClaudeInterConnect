@@ -51,11 +51,14 @@ public:
     APVTS apvts{*this, nullptr, "Parameters", createParameterLayout()};
 
 private:
-    static const int PORT_NUMBER = 52364;
-    bool isServer = false;
-    std::unique_ptr<juce::InterprocessConnectionServer> connectionServer;
-    juce::AudioBuffer<float> sharedAudioBuffer;
-    std::atomic<bool> isConnected{false};
+    static const int PORT_NUMBER = 52364; // Arbitrary port number
+    bool isServer = false; // Flag to determine if this instance
+    std::unique_ptr<juce::InterprocessConnectionServer> connectionServer; // Server instance
+    juce::AudioBuffer<float> sharedAudioBuffer; // Shared audio buffer
+    std::atomic<bool> isConnected{false}; // Flag to determine if a client is connected
+    
+    void attemptConnectionRetry();
+    
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ClaudeInterConnectAudioProcessor)
 };
